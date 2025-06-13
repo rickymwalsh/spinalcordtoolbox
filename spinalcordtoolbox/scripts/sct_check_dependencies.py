@@ -254,8 +254,12 @@ def main(argv: Sequence[str]):
                 "-i", "0",
             ], verbose=0, raise_exception=False)
         except FileNotFoundError as e:
-            e.strerror = "GPU version of torch is installed, but could not find NVIDIA's GPU software"
-            raise e
+            # e.strerror = "GPU version of torch is installed, but could not find NVIDIA's GPU software"
+            # raise e
+            print("Ignoring GPU error to avoid problems with Docker build. GPU version of torch is installed, but "
+                  "command nvidia-smi not found. If building in Docker then this is expected as nvidia-smi is only "
+                  "available at runtime.")
+            status = 1
         if status == 0:
             for n in range(int(n_gpus)):
                 _, output = run_proc([
