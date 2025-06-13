@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     import torch
 
 
-def create_nnunet_from_plans(path_model, device: 'torch.device'):
+def create_nnunet_from_plans(path_model, device: 'torch.device', test_time_aug=False):
     tile_step_size = 0.5
     # get the nnunet trainer directory
     trainer_dirs = glob.glob(os.path.join(path_model, "nnUNetTrainer*"))
@@ -42,7 +42,7 @@ def create_nnunet_from_plans(path_model, device: 'torch.device'):
     predictor = nnUNetPredictor(
         tile_step_size=tile_step_size,  # changing it from 0.5 to 0.9 makes inference faster
         use_gaussian=True,  # applies gaussian noise and gaussian blur
-        use_mirroring=False,  # test time augmentation by mirroring on all axes
+        use_mirroring=test_time_aug,  # test time augmentation by mirroring on all axes
         perform_everything_on_device=False,
         device=device,
         verbose=False,
