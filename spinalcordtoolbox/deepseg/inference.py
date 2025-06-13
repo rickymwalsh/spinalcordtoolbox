@@ -131,7 +131,8 @@ def segment_non_ivadomed(path_model, model_type, input_filenames, threshold, kee
     for fname_in in input_filenames:
         tmpdir = tmp_create(basename="sct_deepseg")
         # model may be multiclass, so the `inference` func should output a list of fnames and targets
-        fnames_out, targets = inference(path_img=fname_in, tmpdir=tmpdir, predictor=net, device=device)
+        fnames_out, targets = inference(path_img=fname_in, tmpdir=tmpdir, predictor=net, device=device,
+                                        save_probabilities=threshold == 0)
         for fname_out, target in zip(fnames_out, targets):
             im_out = Image(fname_out)
             # Apply postprocessing (replicates existing functionality from ivadomed package)
@@ -160,9 +161,11 @@ def segment_non_ivadomed(path_model, model_type, input_filenames, threshold, kee
     return im_lst, target_lst
 
 
-def segment_monai(path_img, tmpdir, predictor, device: torch.device):
+def segment_monai(path_img, tmpdir, predictor, device: torch.device, save_probabilities=False):
     """
     Script to run inference on a MONAI-based model for contrast-agnostic soft segmentation of the spinal cord.
+
+    [save_probabilities not implemented here, but given as arg for consistency with the adapted segment_nnunet]
 
     Author: Naga Karthik
     Original script: https://github.com/sct-pipeline/contrast-agnostic-softseg-spinalcord/blob/e65478099d026f865b7f1d7d0082e6e9a507a744/monai/run_inference_single_image.py
@@ -216,7 +219,7 @@ def segment_monai(path_img, tmpdir, predictor, device: torch.device):
     return [fname_out], [target]
 
 
-def segment_nnunet(path_img, tmpdir, predictor, device: torch.device):
+def segment_nnunet(path_img, tmpdir, predictor, device: torch.device, save_probabilities=False):
     """
     This script is used to run inference on a single subject using a nnUNetV2 model.
 
@@ -230,6 +233,10 @@ def segment_nnunet(path_img, tmpdir, predictor, device: torch.device):
     if device != predictor.device:
         logger.warning(f"Param `device` (value: {device}) is ignored in favor of `predictor.device` (value: "
                        f"{predictor.device}). To change the device, please modify the initialization of the predictor.")
+
+    if save_probabilities and len(predictor.dataset_json['labels']) > 2:
+        raise NotImplementedError('save_probabilities not implemented for multi-class outputs - '
+                                  'only background/foreground possible for now.')
 
     # Copy the file to the temporary directory using shutil.copyfile
     path_img_tmp = os.path.join(tmpdir, os.path.basename(path_img))
@@ -279,7 +286,10 @@ def segment_nnunet(path_img, tmpdir, predictor, device: torch.device):
         input_image=data,
         # The spacings also have to be reversed to match nnUNet's conventions.
         image_properties={'spacing': img_in.dim[6:3:-1]},
+        save_or_return_probabilities=save_probabilities,
     )
+    if save_probabilities:
+        pred = pred[1][1]  # Foreground class # TODO: won't work for multi-class outputs (e.g. SC + seg)
     # Lastly, we undo the transpose to return the image from [z,y,x] (SimpleITK) to [x,y,z] (nibabel)
     pred = pred.transpose([2, 1, 0])
     img_out = img_in.copy()
@@ -321,11 +331,16 @@ def segment_nnunet(path_img, tmpdir, predictor, device: torch.device):
             # This handles nested labels, e.g. when the SC includes both lesion labels (2) and cord label (1)
             # Numpy syntax reference: https://stackoverflow.com/a/20528566
             label_values = label_values if isinstance(label_values, list) else [label_values]      # convert to list
-            bool_array = np.logical_or.reduce([img_out.data == int(val) for val in label_values])  # 'OR' each label val
-            img_bin = Image(bool_array.astype(np.uint8), hdr=img_out.hdr)
+            # bool_array = np.logical_or.reduce([img_out.data == int(val) for val in label_values])  # 'OR' each label val
+            # img_bin = Image(bool_array.astype(np.uint8), hdr=img_out.hdr)
+            if not save_probabilities:
+                bool_array = np.logical_or.reduce([img_out.data == int(val) for val in label_values])  # 'OR' each label val
+                out_final = Image(bool_array.astype(np.uint8), hdr=img_out.hdr)
+            else:
+                out_final = img_out
             target = f"_{label}_seg"
             targets.append(target)
-            outputs.append(img_bin)
+            outputs.append(out_final)
 
     # Save each image using the suffixes determined above
     fnames_out = []
@@ -338,7 +353,8 @@ def segment_nnunet(path_img, tmpdir, predictor, device: torch.device):
     return fnames_out, targets
 
 
-def segment_totalspineseg(path_img, tmpdir, predictor, device):
+def segment_totalspineseg(path_img, tmpdir, predictor, device, save_probabilities=False):
+    # save_probabilities not implemented here, but given as arg for consistency with the adapted segment_nnunet
     # for totalspineseg, the 'predictor' is just the model path
     path_model = predictor
     # fetch the release subdirectory from the model path
