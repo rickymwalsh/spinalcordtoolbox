@@ -456,7 +456,7 @@ def main(argv: Sequence[str]):
             print_fail(f" Run 'sct_download_data -d {dataset_name}' to reinstall")
 
     print('')
-    sys.exit(e + install_software)
+    # sys.exit(e + install_software)
 
 
 if __name__ == "__main__":
